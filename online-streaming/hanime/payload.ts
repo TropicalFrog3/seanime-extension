@@ -403,7 +403,7 @@ function parseHits(hits: string): SearchResult[] {
 }
 
 // ---------- Main Class ----------
-class Provider {
+class ProviderHANIME {
     private readonly SEARCH_URL = "https://search.htv-services.com";
     private readonly EPISODE_URL = "https://hanime.tv/rapi/v7/videos_manifests/";
     private readonly API = "https://hanime.tv";
@@ -511,8 +511,6 @@ class Provider {
             console.log(`No videos manifest for ${episode.title}`);
             return {} as EpisodeServer;
         }
-        console.log(JSON.stringify(result.videos_manifest, null, 2));
-
         const videos: VideoSource[] = [];
         result.videos_manifest.servers.forEach((serverElement: any) => {
             if (_server !== serverElement.name) return;

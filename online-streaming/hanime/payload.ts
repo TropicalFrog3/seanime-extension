@@ -479,7 +479,11 @@ class Provider {
         const episodes: EpisodeDetails[] = [];
         const req = await fetch(`${this.API}/videos/hentai/${id}`);
         const html = await req.text();
-        const json = JSON.parse(html.split('window.__NUXT__=')[1].split(';</script>')[0]) as HanimeResponse;
+        
+        const nuxtScript = html.split('window.__NUXT__=')[1].split(';</script>')[0];
+        
+        const json = eval(`(${nuxtScript})`) as HanimeResponse;
+        
         const videoData = json.state.data.video;
         videoData.hentai_franchise_hentai_videos.forEach((video) => {
             episodes.push({

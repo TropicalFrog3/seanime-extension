@@ -477,7 +477,7 @@ class Provider {
     }
 
     async findEpisodes(id: string): Promise<EpisodeDetails[]> {
-        if(id === "" || !id) {
+        if (id === "" || !id) {
             return [];
         }
         const MainHtml = await fetch(id).then(res => res.text());
@@ -527,18 +527,9 @@ class Provider {
             if (servers.includes(_server)) {
                 return <EpisodeServer>{
                     headers: {},
-                    server: _server + " (video not found)",
-                    videoSources: <VideoSource[]>[
-                        {
-                            // dummy video source
-                            url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8",
-                            type: "m3u8",
-                            quality: "video not found",
-                            subtitles: []
-                        }
-                    ]
-
-                };
+                    server: "",
+                    videoSources: []
+                }
             } else {
                 return <EpisodeServer>{
                     headers: {},
@@ -563,17 +554,9 @@ class Provider {
             console.log(`No video sources found for server: ${_server}`);
             return <EpisodeServer>{
                 headers: {},
-                server: _server + " (video not found)",
-                videoSources: <VideoSource[]>[
-                    {
-                        url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8",
-                        type: "m3u8",
-                        quality: "video not found",
-                        subtitles: []
-                    }
-                ]
-
-            };
+                server: "",
+                videoSources: []
+            }
         }
     }
 

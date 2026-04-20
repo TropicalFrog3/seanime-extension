@@ -71,7 +71,8 @@ class Provider {
                 "vidmoly", "jilliandescribecompany", "luluvid", "uqload", "filelions", "getvid", "sibnet", "ups2up",
                 "myvi", "mixdrop", "ok", "mail", "iframedream", "rutube", "fembed", "mp4upload", "gvstream", "gvlod", "upvid", "dood",
                 "ninjastream", "streamtape", "vudeo", "sbfast", "streamlare", "sbfull", "sbthe", "upstream", "vvide0", "hqq", "mvidoo", "vido",
-                "sbspeed", "sblanh", "upvideo", "streamvid", "streamhide", "lvturbo", "guccihide", "likessb", "streamhub"
+                "sbspeed", "sblanh", "upvideo", "streamvid", "streamhide", "lvturbo", "guccihide", "likessb", "streamhub",
+                "charlestoughrace", "up4fun", "savefiles"
             ],
             supportsDub: true,
         }
@@ -174,26 +175,23 @@ class Provider {
 
             // RELEASE DATE
             const queryReleaseDate = opts.year?.toString();
-            if(queryReleaseDate)
-            {
+            if (queryReleaseDate) {
                 score += this.scoreStringMatch(ScoreWeight.ReleaseDate, movie.details.releaseDate, queryReleaseDate);
                 strOutput += `Release Date: ${movie.details.releaseDate} VS ${queryReleaseDate}, Current Score: ${score}\n`;
             }
             else
                 balance++;
-            
+
             // EPISODE COUNT
             const queryEpisodeCount = opts.media.episodeCount?.toString();
-            if(queryEpisodeCount)
-            {
+            if (queryEpisodeCount) {
                 score += this.scoreStringMatch(ScoreWeight.EpisodeCount, movie.nbEp.toString(), queryEpisodeCount);
                 strOutput += `Episode Count: ${movie.nbEp} VS ${queryEpisodeCount}, Current Score: ${score}\n`;
             }
             else
                 balance++;
-            
-            if(balance > 0)
-            {
+
+            if (balance > 0) {
                 // without balance it is 3/3
                 // with balance it is 3/2
                 // need to balance to /3
@@ -220,9 +218,9 @@ class Provider {
         const regex = new RegExp('https?:\\/\\/[^\'"]+\\.' + type + '(?:\\?[^\\s\'"]*)?(?:#[^\\s\'"]*)?', 'g');
 
         let VideoMatch = html.match(regex)
-        || unpacked?.match(regex)
-        || html.match(new RegExp(`"([^"]+\\.${type})"`, "g")) 
-        || unpacked?.match(new RegExp(`"([^"]+\\.${type})"`, "g"));
+            || unpacked?.match(regex)
+            || html.match(new RegExp(`"([^"]+\\.${type})"`, "g"))
+            || unpacked?.match(new RegExp(`"([^"]+\\.${type})"`, "g"));
 
         if (VideoMatch) {
             if (!VideoMatch.some(url => url.startsWith("http"))) {
@@ -665,18 +663,9 @@ class Provider {
             if (servers.includes(_server)) {
                 return <EpisodeServer>{
                     headers: {},
-                    server: _server + " (video not found)",
-                    videoSources: <VideoSource[]>[
-                        {
-                            // dummy video source
-                            url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8",
-                            type: "m3u8",
-                            quality: "video not found",
-                            subtitles: []
-                        }
-                    ]
-
-                };
+                    server: "",
+                    videoSources: []
+                }
             } else {
                 return <EpisodeServer>{
                     headers: {},

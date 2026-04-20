@@ -472,27 +472,38 @@ class Provider {
             result.title = result.title.replace(/\s*\d+$/, "");
         });
 
-        return results;
+        const uniqueResults: SearchResult[] = [];
+        const seenUrls = new Set<string>();
+        for (const result of results) {
+            if (!seenUrls.has(result.url)) {
+                seenUrls.add(result.url);
+                uniqueResults.push(result);
+            }
+        }
+
+        return uniqueResults;
     }
 
     async findEpisodes(id: string): Promise<EpisodeDetails[]> {
         const episodes: EpisodeDetails[] = [];
-        const req = await fetch(`${this.API}/videos/hentai/${id}`);
-        const html = await req.text();
+        const req = await fetch(`${this.EPISODE_URL}${id}`);
         
-        const nuxtScript = html.split('window.__NUXT__=')[1].split(';</script>')[0];
+        if (!req.ok) {
+            return episodes;
+        }
+
+        const videoData = await req.json() as Video;
         
-        const json = eval(`(${nuxtScript})`) as HanimeResponse;
-        
-        const videoData = json.state.data.video;
-        videoData.hentai_franchise_hentai_videos.forEach((video) => {
-            episodes.push({
-                id: video.id.toString(),
-                number: videoData.hentai_franchise_hentai_videos.indexOf(video) + 1,
-                url: `${this.EPISODE_URL}${video.slug}`,
-                title: videoData.hentai_franchise.name,
+        if (videoData && videoData.hentai_franchise_hentai_videos) {
+            videoData.hentai_franchise_hentai_videos.forEach((video, index) => {
+                episodes.push({
+                    id: video.id.toString(),
+                    number: index + 1,
+                    url: `${this.EPISODE_URL}${video.slug}`,
+                    title: videoData.hentai_franchise.name,
+                });
             });
-        });
+        }
         return episodes;
     }
 

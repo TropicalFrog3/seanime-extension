@@ -405,14 +405,51 @@ function parseHits(hits: string): SearchResult[] {
 // ---------- Main Class ----------
 class Provider {
     private readonly SEARCH_URL = "https://search.htv-services.com";
-    private readonly EPISODE_URL = "https://h.freeanimehentai.net/api/v8/video?id=";
+    private readonly EPISODE_URL = "https://hanime.tv/api/v8/video?id=";
     private readonly API = "https://hanime.tv";
     private readonly REFERER_API = "https://player.hanime.tv";
+    private readonly PLAY_URL = "https://cached.freeanimehentai.net/api/v8/hentai_videos";
+
+    private async getSignature(id: string): Promise<{ sig: string, time: string }> {
+        try {
+            const { JSDOM } = await import('jsdom');
+            const fs = await import('fs');
+            const path = await import('path');
+            
+            const vendorPath = path.join(__dirname, 'vendor.js');
+            if (!fs.existsSync(vendorPath)) return { sig: '', time: '' };
+            
+            const vendorJs = fs.readFileSync(vendorPath, 'utf8');
+            
+            const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`, {
+                runScripts: "dangerously",
+                url: `https://hanime.tv/videos/hentai/${id}`
+            });
+            
+            const { window } = dom;
+            (window as any).Module = {};
+            (window as any).fetch = async () => ({ ok: true, json: async () => ({}) });
+            
+            const script = window.document.createElement("script");
+            script.textContent = vendorJs;
+            window.document.head.appendChild(script);
+            
+            await (window as any).fetch(`${this.PLAY_URL}/${id}/play`);
+            
+            for (let i = 0; i < 30; i++) {
+                if ((window as any).ssignature && (window as any).stime) {
+                    return { sig: (window as any).ssignature, time: String((window as any).stime) };
+                }
+                await new Promise(r => setTimeout(r, 100));
+            }
+        } catch (e) { console.log('sig err', e); }
+        return { sig: '', time: '' };
+    }
 
     getSettings(): Settings {
         return {
             // idk if there's other ones so...
-            episodeServers: ["Shiva"],
+            episodeServers: ["Shiva", "Golem"],
             supportsDub: false,
         };
     }
@@ -510,17 +547,43 @@ class Provider {
     async findEpisodeServer(episode: EpisodeDetails, _server: string): Promise<EpisodeServer> {
         if (!_server) return {} as EpisodeServer;
 
-        const req = await fetch(episode.url);
+        // Extract slug from episode ID or URL
+        // episode.id format: "kotowari-1" 
+        // episode.url format: "https://hanime.tv/api/v8/video?id=kotowari-1"
+        let episodeSlug = episode.id;
+        if (episode.url.includes('id=')) {
+            const match = episode.url.match(/id=([^&]+)/);
+            if (match) episodeSlug = match[1];
+        }
+        
+        // For now, use the direct /video endpoint which works - streamable.cloud may come back
+        const req = await fetch(episode.url), {
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
+                'Accept': 'application/json',
+                'Referer': 'https://hanime.tv/',
+                'Origin': 'https://hanime.tv',
+            },
+        });
 
-        const result = await req.json();
-        if (!result?.videos_manifest) {
-            // console.log(`No videos manifest for ${episode.title}`);
+        const resultText = await req.text();
+        if (!resultText) {
+            console.log('[DEBUG] Empty response from /play endpoint');
             return <EpisodeServer>{};
         }
+        
+        const result = JSON.parse(resultText);
+        if (!result?.videos_manifest) {
+            return <EpisodeServer>{};
+        }
+        
         const videos: VideoSource[] = [];
+        let matchedServer = _server;
+        
+        // Try exact server match first
         result.videos_manifest.servers.forEach((serverElement: any) => {
             if (_server !== serverElement.name) return;
-
             const allowedStreams = serverElement.streams.filter((s: any) => s.is_guest_allowed);
             allowedStreams.forEach((stream: any) => {
                 videos.push({
@@ -532,8 +595,22 @@ class Provider {
             });
         });
 
+        // Fallback to first available server if exact match not found
+        if (videos.length === 0 && result.videos_manifest.servers.length > 0) {
+            const fallback = result.videos_manifest.servers[0];
+            matchedServer = fallback.name;
+            fallback.streams.filter((s: any) => s.is_guest_allowed).forEach((stream: any) => {
+                videos.push({
+                    url: stream.url,
+                    type: "m3u8" as VideoSourceType,
+                    quality: `${stream.height}p`,
+                    subtitles: [],
+                });
+            });
+        }
+
         return <EpisodeServer>{
-            server: _server,
+            server: matchedServer,
             headers: {
                 Referer: `${this.REFERER_API}`,
             },

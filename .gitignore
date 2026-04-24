@@ -3,3 +3,4 @@ plugins/_external/*
 Future Plugins.txt
 plugins/*
 online-streaming/node_modules/*
+.aniyo-ext/*

@@ -1,191 +1,183 @@
-import { testAnimeProvider } from "./test-provider";
 import * as fs from "fs";
 import * as path from "path";
-import * as cheerio from "cheerio";
 
-// Universal Polyfill for Seanime's internal `LoadDoc`
-function createSeanimeWrapper($: any, cheerioObj: any): any {
-    if (!cheerioObj || typeof cheerioObj !== 'object') return cheerioObj;
-    if (!cheerioObj.cheerio) return cheerioObj;
+/**
+ * Seanime Playground Test Runner
+ * 
+ * This script runs extension tests by sending the code to the Seanime Desktop Playground API.
+ * It mimics the behavior of the Seanime Playground UI.
+ */
 
-    return new Proxy(cheerioObj, {
-        get(target, prop, receiver) {
-            // Seanime's map returns a raw array, not a Cheerio collection
-            if (prop === 'map') {
-                return function(fn: any) {
-                    return target.map(function(i: number, el: any) {
-                        return fn.call(this, i, createSeanimeWrapper($, $(el)));
-                    }).get();
-                };
-            }
-            // each passes a wrapped selection
-            if (prop === 'each') {
-                return function(fn: any) {
-                    target.each(function(i: number, el: any) {
-                        return fn.call(this, i, createSeanimeWrapper($, $(el)));
-                    });
-                    return receiver; // return the proxy wrapper for chaining
-                };
-            }
-            // filter passes a wrapped selection if fn is a function
-            if (prop === 'filter') {
-                return function(fn: any) {
-                    if (typeof fn === 'function') {
-                        const filtered = target.filter(function(i: number, el: any) {
-                            return fn.call(this, i, createSeanimeWrapper($, $(el)));
-                        });
-                        return createSeanimeWrapper($, filtered);
-                    }
-                    // if it's a string selector, pass it straight to cheerio
-                    return createSeanimeWrapper($, target.filter(fn));
-                };
-            }
+const SEANIME_URL = "http://127.0.0.1:43211";
+let SEANIME_CLIENT_ID = "3850bb03-20d1-452f-8c23-915cb4810018"; // Default fallback
 
-            const value = Reflect.get(target, prop, receiver);
-
-            // Wrap functions returning Cheerio objects
-            if (typeof value === 'function') {
-                return function (...args: any[]) {
-                    const result = value.apply(target, args);
-                    return createSeanimeWrapper($, result);
-                };
-            }
-
-            return value;
-        }
-    });
-}
-
-(global as any).LoadDoc = async (html: string) => {
-    const $ = cheerio.load(html);
-    const wrapper = function(selector: any, context?: any, root?: any) {
-        return createSeanimeWrapper($, $(selector, context, root));
-    };
-    Object.assign(wrapper, $);
-    return wrapper;
-};
-
-// --- Proxy Patch to Bypass Cloudflare for Local Testing ---
-const originalFetch = global.fetch;
-
-// Simple semaphore for rate limiting
-let activeRequests = 0;
-const maxRequests = 3;
-async function waitTurn() {
-    while (activeRequests >= maxRequests) {
-        await new Promise(r => setTimeout(r, 200));
-    }
-    activeRequests++;
-}
-
-global.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    let url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    
-    // Pass Seanime proxy intercepts through normally
-    if (url.includes('api/v1/proxy?url=')) {
-        return originalFetch(input, init);
-    }
-    
-    await waitTurn();
-    try {
-        if (init && init.method === 'POST') {
-            const bodyStr = init.body?.toString() || '';
-            if (bodyStr.includes('do=search')) {
-                const searchMatch = bodyStr.match(/story=([^&]+)/);
-                const query = searchMatch ? searchMatch[1] : 'Naruto';
-                url = `https://ww.animesultra.org/?do=search&subaction=search&story=${query}`;
-            }
-        }
-        
-        const proxies = [
-            (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-            (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-            (u: string) => `https://cors-anywhere.herokuapp.com/${u}`, // Very slow/rate limited but as last resort
-        ];
-        
-        const newInit = { ...init };
-        if (newInit.method === 'POST') {
-            newInit.method = 'GET';
-            delete newInit.body;
-        }
-
-        for (const proxyFn of proxies) {
-            const proxyUrl = proxyFn(url);
-            let retries = 2;
-            while (retries > 0) {
-                try {
-                    const res = await originalFetch(proxyUrl, newInit);
-                    if (res.ok) return res;
-                    console.log(`[PROXY] Proxy ${proxyUrl.split('/')[2]} failed with ${res.status}. Retrying...`);
-                } catch (e: any) {
-                    console.log(`[PROXY] Proxy ${proxyUrl.split('/')[2]} error: ${e.message}. Retrying...`);
+// --- Auth Setup ---
+try {
+    const harPath = path.join(__dirname, "playground.har");
+    if (fs.existsSync(harPath)) {
+        const harData = JSON.parse(fs.readFileSync(harPath, "utf-8"));
+        const firstEntry = harData.log.entries.find((e: any) => e.request.url.includes(SEANIME_URL));
+        if (firstEntry) {
+            const cookieHeader = firstEntry.request.headers.find((h: any) => h.name.toLowerCase() === "cookie");
+            if (cookieHeader) {
+                const match = cookieHeader.value.match(/Seanime-Client-Id=([^;]+)/);
+                if (match) {
+                    SEANIME_CLIENT_ID = match[1];
+                    console.log(`[AUTH] Using Client ID: ${SEANIME_CLIENT_ID}`);
                 }
-                retries--;
-                if (retries > 0) await new Promise(r => setTimeout(r, 1000));
             }
         }
-
-        // Final attempt direct (might fail on Cloudflare but good for non-CF domains)
-        console.log(`[PROXY] All proxies failed. Final attempt direct fetch: ${url}`);
-        return await originalFetch(url, init);
-    } finally {
-        activeRequests--;
     }
-};
-// -----------------------------------------------------------
+} catch (e) {
+    console.warn("[AUTH] Could not extract Client ID from HAR, using default.");
+}
+
+/**
+ * Calls the Seanime Playground API to execute a function in the extension code.
+ */
+async function callPlayground(code: string, func: string, inputs: any) {
+    const url = `${SEANIME_URL}/api/v1/extensions/playground/run`;
+
+    const body = {
+        params: {
+            type: "onlinestream-provider",
+            language: "typescript",
+            code: code,
+            function: func,
+            inputs: inputs
+        }
+    };
+
+    const res = await fetch(url, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Cookie": `Seanime-Client-Id=${SEANIME_CLIENT_ID}`
+        },
+        body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`API request failed (${res.status}): ${errText}`);
+    }
+
+    const json = await res.json();
+
+    // Print logs from the extension execution
+    if (json.data && json.data.logs) {
+        const logs = json.data.logs;
+        // Clean up the logs format (they usually come with timestamps and |DBG| markers)
+        process.stdout.write(logs);
+    }
+
+    // Return the value (usually a JSON string that needs parsing)
+    if (json.data && json.data.value) {
+        try {
+            return JSON.parse(json.data.value);
+        } catch (e) {
+            return json.data.value;
+        }
+    }
+
+    return null;
+}
 
 async function runTest() {
     const targetExtension = process.argv[2];
-    const queryArg = process.argv[3];
-    const epArg = process.argv[4];
+    const queryOrId = process.argv[3];
+    const epArg = process.argv[4] ? parseInt(process.argv[4], 10) : 1;
     const serverArg = process.argv[5];
-    
+
+    let mediaId = 110270; // Default
+    let queryArg = queryOrId || "Ishuzoku Reviewers";
+
+    // If queryOrId is a number, use it as mediaId
+    if (queryOrId && !isNaN(Number(queryOrId))) {
+        mediaId = Number(queryOrId);
+        console.log(`[INFO] Using mediaId: ${mediaId}`);
+    }
+
     if (!targetExtension) {
-        console.error("❌ Please provide the extension folder name to test.");
-        console.error("Usage: npx tsx test-runner.ts <extension-folder-name> [query] [episode] [server]");
-        console.error("Example: npx tsx test-runner.ts anime-sama Naruto 1 vidmoly");
+        console.log("\nSeanime Extension Playground Runner");
+        console.log("Usage: npx tsx test-runner.ts <extension-dir> [query/mediaId] [episode] [server]");
+        console.log("Example: npx tsx test-runner.ts hentaihaven \"Naruto\" 1\n");
         process.exit(1);
     }
 
     const payloadPath = path.join(__dirname, "..", targetExtension, "payload.ts");
-    
     if (!fs.existsSync(payloadPath)) {
-        console.error(`❌ Could not find payload.ts for extension '${targetExtension}' at: ${payloadPath}`);
+        console.error(`❌ Error: Could not find payload.ts at ${payloadPath}`);
         process.exit(1);
     }
 
-    console.log(`Setting up test environment for '${targetExtension}'...`);
-    
-    const tempPath = path.join(__dirname, "..", targetExtension, "temp-payload.ts");
-    
-    // Create a temporary file that safely exports the Provider so we can import it
+    console.log(`\n🚀 Testing extension: ${targetExtension}`);
+    console.log(`📍 Using Seanime API at: ${SEANIME_URL}`);
+
     let code = fs.readFileSync(payloadPath, "utf-8");
-    
-    // Fix: Seanime's JS environment exposes .length() as a method, but Cheerio uses .length property
-    code = code.replace(/\.length\(\)/g, ".length");
-    
-    code += "\n\nexport default Provider;\n";
-    fs.writeFileSync(tempPath, code);
 
     try {
-        // Dynamically import the compiled module
-        const module = await import(`../${targetExtension}/temp-payload.ts`);
-        const ProviderClass = module.default;
-        
-        const provider = new ProviderClass();
-        
-        console.log("IMPORTANT: Make sure the Seanime Desktop app is running so the proxy API works!");
-        
-        await testAnimeProvider(provider, {
+        // 1. Search
+        console.log(`\n--- [1/3] search (query: "${queryArg}") ---`);
+        const searchResults = await callPlayground(code, "search", {
             query: queryArg,
-            episodeNumber: epArg ? parseInt(epArg, 10) : undefined,
-            server: serverArg
+            dub: false,
+            mediaId: mediaId
         });
-    } finally {
-        // Cleanup the temporary file immediately after testing
-        if (fs.existsSync(tempPath)) {
-            fs.unlinkSync(tempPath);
+
+        if (!searchResults) {
+            console.error("❌ No results found.");
+            return;
         }
+
+        const results = Array.isArray(searchResults) ? searchResults : [searchResults];
+        if (results.length === 0 || !results[0]) {
+            console.error("❌ No results found.");
+            return;
+        }
+
+        const firstResult = results[0];
+        console.log(`\nFound ${results.length} results.`);
+        console.log(`Selected: "${firstResult.title}" (ID: ${firstResult.id})`);
+
+        const selectedServer = serverArg || "HentaiHaven"; // Fallback to a common server or user input
+
+        // 2. Find Episodes
+        console.log(`\n--- [2/3] findEpisodes (id: "${firstResult.id}") ---`);
+        const episodes = await callPlayground(code, "findEpisodes", {
+            id: firstResult.id,
+            mediaId: mediaId
+        });
+
+        if (!episodes || !Array.isArray(episodes) || episodes.length === 0) {
+            console.error("❌ No episodes found.");
+            return;
+        }
+
+        const targetEpisode = episodes.find((e: any) => e.number === epArg) || episodes[0];
+        console.log(`\nFound ${episodes.length} episodes.`);
+        console.log(`Selected: Episode ${targetEpisode.number}`);
+
+        // 3. Find Episode Server
+        console.log(`\n--- [3/3] findEpisodeServer (server: "${selectedServer}") ---`);
+        // We send the episode as a stringified object because the Seanime Playground UI does this
+        const serverData = await callPlayground(code, "findEpisodeServer", {
+            episode: JSON.stringify(targetEpisode),
+            server: selectedServer,
+            mediaId: mediaId
+        });
+
+        console.log("\n--- Final Results ---");
+        console.log(JSON.stringify(serverData, null, 2));
+
+        if (serverData?.videoSources?.length > 0) {
+            console.log(`\n✅ Success! Found ${serverData.videoSources.length} video sources.`);
+        } else {
+            console.error(`\n❌ Test Failed: No video sources found for this episode/server.`);
+        }
+
+    } catch (err: any) {
+        console.error(`\n❌ Test Failed: ${err.message}`);
     }
 }
 

@@ -39,7 +39,6 @@ class Provider {
 
     readonly SEARCH_URL = "https://ww.animesultra.org/";
     readonly EPISODE_URL = "https://ww.animesultra.org/engine/ajax/full-story.php?"
-    readonly SEANIME_API = "http://127.0.0.1:43211/api/v1/proxy?url=";
 
     _Server = "";
 
@@ -47,46 +46,15 @@ class Provider {
 
     //#region methods
 
-    private failedProxies: Set<number> = new Set();
-
     private async proxyFetch(url: string, init?: RequestInit): Promise<string> {
-        const proxies = [
-            `${this.SEANIME_API}${encodeURIComponent(url)}`,
-            `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`, // Moved up (Fast)
-            `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-            `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
-        ];
-
-        // Try healthy proxies first
-        const order = [0, 1, 2, 3].sort((a, b) => {
-            const aFailed = this.failedProxies.has(a) ? 1 : 0;
-            const bFailed = this.failedProxies.has(b) ? 1 : 0;
-            return aFailed - bFailed;
-        });
-
-        for (const i of order) {
-            const proxyUrl = proxies[i];
-            try {
-                const res = await fetch(proxyUrl, { ...init, method: "GET" });
-                if (!res.ok) {
-                    this.failedProxies.add(i);
-                    continue;
-                }
-
-                this.failedProxies.delete(i);
-
-                if (proxyUrl.indexOf("allorigins.win/get") !== -1) {
-                    const json = await res.json();
-                    if (json && json.contents) return json.contents;
-                } else {
-                    const text = await res.text();
-                    if (text) return text;
-                }
-            } catch (e: any) {
-                this.failedProxies.add(i);
-            }
+        try {
+            const res = await fetch(url, init);
+            if (!res.ok) throw new Error(`Fetch failed with status ${res.status}`);
+            return await res.text();
+        } catch (e: any) {
+            console.error(`[FETCH ERROR] ${url}: ${e.message}`);
+            throw e;
         }
-        throw new Error("All proxies failed");
     }
 
     getSettings(): Settings {

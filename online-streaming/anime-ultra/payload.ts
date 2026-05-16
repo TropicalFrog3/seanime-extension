@@ -49,11 +49,39 @@ class Provider {
     private async proxyFetch(url: string, init?: RequestInit): Promise<string> {
         try {
             const res = await fetch(url, init);
+            if (!res) throw new Error(`Fetch returned undefined. The domain may be blocked or unreachable.`);
             if (!res.ok) throw new Error(`Fetch failed with status ${res.status}`);
-            return await res.text();
+            const text = await res.text();
+            if (text.includes("cf-challenge") || text.includes("Checking your browser")) {
+                throw new Error("Cloudflare challenge detected");
+            }
+            return text;
         } catch (e: any) {
             console.error(`[FETCH ERROR] ${url}: ${e.message}`);
-            throw e;
+            if (init && init.method && init.method !== "GET") {
+                throw e; // Do not use ChromeDP for non-GET requests
+            }
+            console.log(`[proxyFetch] Falling back to ChromeDP for ${url}`);
+            try {
+                const browser = await ChromeDP.newBrowser({ headless: true, timeout: 30000 });
+                await browser.navigate(url);
+                await browser.sleep(6000); // Wait for potential Cloudflare challenge to resolve
+                
+                let result = "";
+                if (url.includes("ajax")) {
+                    result = await browser.evaluate("document.body.innerText");
+                } else {
+                    result = await browser.evaluate("document.documentElement.outerHTML");
+                }
+                await browser.close();
+                if (url.includes("vidstream")) {
+                    console.log("VIDSTREAM HTML DUMP: " + result.substring(0, 500));
+                }
+                return result;
+            } catch (ce: any) {
+                console.error(`[ChromeDP ERROR] ${url}: ${ce.message}`);
+                throw new Error(`Fetch and ChromeDP both failed for ${url}`);
+            }
         }
     }
 
@@ -185,13 +213,21 @@ class Provider {
             const m = cleanHtml.match(patterns[i]) || cleanUnpacked.match(patterns[i]);
             if (m) VideoMatch.push(...m);
         }
+        
+        const simpleRegex = new RegExp(`(?:https?:\\/\\/|\\/)[^\\s'"]+\\.${type}(?:\\?[^\\s'"]*)?`, 'gi');
+        const simpleMatches = cleanHtml.match(simpleRegex) || cleanUnpacked.match(simpleRegex);
+        if (simpleMatches) VideoMatch.push(...simpleMatches);
 
         if (VideoMatch.length === 0) return undefined;
         
         // Deduplicate and clean URLs
-        const serverurldomain = serverUrl.split("/").slice(0, 3).join("/");
+        let origin = "";
+        try { origin = new URL(serverUrl).origin; } catch(e) {}
+        const serverurldomain = origin || serverUrl.split("/").slice(0, 3).join("/");
+        
         const uniqueUrls = Array.from(new Set(VideoMatch.map(url => {
-            const cleaned = url.replace(/[\"\'\\]/g, "").trim();
+            let cleaned = url.replace(/[\"\'\\]/g, "").trim();
+            if (cleaned.startsWith("/")) cleaned = origin + cleaned;
             return cleaned.startsWith("http") ? cleaned : `${serverurldomain}${cleaned.startsWith("/") ? "" : "/"}${cleaned}`;
         })));
 
@@ -248,6 +284,65 @@ class Provider {
         console.log(`HandleServerUrl: Starting for ${serverUrl}`);
         try {
             const html = await this.proxyFetch(serverUrl);
+            
+            // Specialized extraction for Voe and other obfuscated servers via ChromeDP evaluation
+            if (serverUrl.includes("voe.sx") || serverUrl.includes("vidmoly") || serverUrl.includes("sendvid")) {
+                console.log(`HandleServerUrl: Using ChromeDP evaluation for obfuscated server: ${serverUrl}`);
+                try {
+                    const browser = await ChromeDP.newBrowser({ headless: true, timeout: 30000 });
+                    await browser.navigate(serverUrl);
+                    await browser.sleep(5000); // Wait for scripts to run
+                    
+                    const extracted = await browser.evaluate(`
+                        (function() {
+                            const results = [];
+                            // 1. Performance entries (very reliable for HLS/MP4)
+                            const entries = performance.getEntriesByType("resource");
+                            for (const entry of entries) {
+                                if (entry.name.includes(".m3u8") || entry.name.includes(".mp4")) {
+                                    results.push({ url: entry.name, type: entry.name.includes(".m3u8") ? "m3u8" : "mp4" });
+                                }
+                            }
+                            // 2. Common player objects
+                            if (window.jwplayer && typeof window.jwplayer === "function") {
+                                try {
+                                    const playlist = window.jwplayer().getPlaylist();
+                                    if (playlist && playlist[0] && playlist[0].file) {
+                                        results.push({ url: playlist[0].file, type: playlist[0].file.includes(".m3u8") ? "m3u8" : "mp4" });
+                                    }
+                                } catch(e) {}
+                            }
+                            // 3. Raw regex in the DOM
+                            const html = document.documentElement.outerHTML;
+                            const m3u8Match = html.match(/https?:\\/\\/[^\\s\\'\\"<>]+?\\.m3u8[^\\s\\'\\"<>]*/gi);
+                            if (m3u8Match) m3u8Match.forEach(u => results.push({ url: u, type: "m3u8" }));
+                            
+                            return JSON.stringify(results);
+                        })()
+                    `);
+                    await browser.close();
+                    
+                    const sources = JSON.parse(extracted);
+                    if (sources && sources.length > 0) {
+                        const unique = Array.from(new Set(sources.map((s: any) => s.url)));
+                        const finalSources: VideoSource[] = [];
+                        for (const url of unique as string[]) {
+                            const s = sources.find((src: any) => src.url === url);
+                            finalSources.push({
+                                url: url,
+                                type: s.type as VideoSourceType,
+                                quality: "Auto",
+                                subtitles: []
+                            });
+                        }
+                        console.log(`HandleServerUrl: ChromeDP found ${finalSources.length} sources`);
+                        return finalSources;
+                    }
+                } catch (ce: any) {
+                    console.log(`HandleServerUrl: ChromeDP evaluation failed: ${ce.message}`);
+                }
+            }
+
             let unpacked: string | undefined;
             const scriptContents = this.extractScripts(html);
             for (let i = 0; i < scriptContents.length; i++) {
@@ -350,18 +445,22 @@ class Provider {
                 const serverName = serverEl.text().trim().toLowerCase();
                 const target = _server.toLowerCase();
                 
+                console.log(`SERVER ITEM ${i}: name="${serverName}" embed="${serverEl.attr("data-embed")}" sid="${serverEl.attr("data-server-id")}" href="${serverEl.attr("href")}" durl="${serverEl.attr("data-url")}" dsrc="${serverEl.attr("data-src")}"`);
+                
                 if (serverName.indexOf(target) !== -1 || target.indexOf(serverName) !== -1) {
                     console.log(`findEpisodeServer: Found matching server element: "${serverName}"`);
-                    let url = serverEl.attr("data-embed");
+                    let url = serverEl.attr("data-embed") || serverEl.attr("href") || serverEl.attr("data-url") || serverEl.attr("data-src");
                     
                     if (!url) {
                         const sid = serverEl.attr("data-server-id");
                         if (!ajaxDoc) {
                             console.log("findEpisodeServer: Fetching fallback AJAX...");
                             ajaxHtml = await this.proxyFetch(`${this.EPISODE_URL}newsId=${episode.id}&d=${new Date().getTime()}`);
+                            console.log(`AJAX RESPONSE (first 200 chars): ${ajaxHtml.substring(0, 200)}`);
                             try {
                                 const parsed = JSON.parse(ajaxHtml);
                                 ajaxHtml = parsed.html || "";
+                                console.log(`AJAX PARSED HTML (first 200 chars): ${ajaxHtml.substring(0, 200)}`);
                                 ajaxDoc = await LoadDoc(ajaxHtml);
                             } catch (e) {
                                 console.log("findEpisodeServer: AJAX parse failed");
@@ -369,7 +468,9 @@ class Provider {
                         }
                         
                         if (ajaxDoc) {
-                            url = ajaxDoc(`#content_player_${sid}`).text().trim();
+                            const playerEl = ajaxDoc(`#content_player_${sid}`);
+                            url = playerEl.text().trim();
+                            console.log(`findEpisodeServer: Player element text for sid=${sid}: "${url}"`);
                             // Fallback: If text is empty, check for iframes or scripts inside the container
                             if (!url) {
                                 const container = ajaxDoc(`#content_player_${sid}`);
@@ -392,7 +493,34 @@ class Provider {
                     if (url) {
                         if (/^\d+$/.test(url)) url = `https://video.sibnet.ru/shell.php?videoid=${url}`;
                         if (url.startsWith("//")) url = "https:" + url;
-                        console.log(`findEpisodeServer: Successfully extracted URL: ${url.substring(0, 50)}...`);
+                    }
+
+                    // Global HTML fallback: If the extracted URL is empty or suspicious (e.g. vidstream.pro), 
+                    // scan the entire episode HTML for known server patterns
+                    if (!url || url.includes("vidstream.pro")) {
+                        console.log(`findEpisodeServer: URL is suspicious or empty ("${url}"), scanning global HTML...`);
+                        const patterns = [
+                            /https?:\/\/voe\.sx\/e\/[a-zA-Z0-9]+/i,
+                            /https?:\/\/video\.sibnet\.ru\/shell\.php\?videoid=\d+/i,
+                            /https?:\/\/sendvid\.com\/embed\/[a-zA-Z0-9]+/i,
+                            /https?:\/\/vidmoly\.to\/embed-[a-zA-Z0-9]+\.html/i
+                        ];
+                        const episodeHtml = await this.proxyFetch(episode.url);
+                        for (const pattern of patterns) {
+                            const match = episodeHtml.match(pattern);
+                            if (match) {
+                                // Only use it if it matches the server name we're looking for
+                                if (match[0].includes(target) || (target === "sibnet" && match[0].includes("sibnet"))) {
+                                    url = match[0];
+                                    console.log(`findEpisodeServer: Found global match for ${target}: ${url}`);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (url) {
+                        console.log(`findEpisodeServer: Final extracted URL: ${url.substring(0, 50)}...`);
                         serverUrls.push(url);
                     }
                 }

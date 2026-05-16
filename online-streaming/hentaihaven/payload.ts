@@ -314,17 +314,16 @@ class Provider {
                     const apiUrl = baseUri.endsWith("/") ? `${baseUri}api.php` : `${baseUri}/api.php`;
                     console.log(`Calling API: ${apiUrl}`);
 
-                    const fd = new FormData();
-                    fd.append("action", "zarat_get_data_player_ajax");
-                    fd.append("a", config.en);
-                    fd.append("b", config.iv);
+                    const bodyString = `action=zarat_get_data_player_ajax&a=${encodeURIComponent(config.en)}&b=${encodeURIComponent(config.iv)}`;
 
                     const apiResponse = await fetch(apiUrl, {
                         method: "POST",
-                        body: fd,
+                        body: bodyString,
                         headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
                             "Referer": playerUrl || episode.url,
-                            "Origin": "https://hentaihaven.xxx"
+                            "Origin": "https://hentaihaven.xxx",
+                            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                         }
                     }).then(res => res.json()).catch(e => ({ status: false, error: e.message }));
 

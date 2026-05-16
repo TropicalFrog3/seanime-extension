@@ -86,6 +86,7 @@ class Provider {
         text = text.toLowerCase();
         query = query.toLowerCase();
         if (text === query) return ScoreWeight.MaxScore * weight;
+        if (text.replace(/\s/g, '') === query.replace(/\s/g, '')) return ScoreWeight.MaxScore * weight * 0.9;
 
         let score = 0;
         const textWords = text.split(" ");
@@ -265,7 +266,7 @@ class Provider {
         const $ = await LoadDoc(html);
         const movies: MovieJson[] = [];
 
-        const items = $("#dle-content li.short-list_item");
+        const items = $("li.short-list_item");
 
         items.each((_, el) => {
             const a = el.find("a.poster-short");

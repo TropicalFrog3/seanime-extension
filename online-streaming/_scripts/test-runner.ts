@@ -131,6 +131,8 @@ async function runTest() {
             return;
         }
 
+        console.log("Raw searchResults:", JSON.stringify(searchResults));
+
         const results = Array.isArray(searchResults) ? searchResults : [searchResults];
         if (results.length === 0 || !results[0]) {
             console.error("❌ No results found.");

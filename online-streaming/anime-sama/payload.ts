@@ -197,8 +197,8 @@ class Provider {
         }
 
         // Look for video URLs
-        const m3u8Regex = /https?:\/\/[^\s'"]+\.m3u8(?:\?[^\s'"]*)?/g;
-        const mp4Regex = /https?:\/\/[^\s'"]+\.mp4(?:\?[^\s'"]*)?/g;
+        const m3u8Regex = /(?:https?:\/\/|\/)[^\s'"]+\.m3u8(?:\?[^\s'"]*)?/g;
+        const mp4Regex = /(?:https?:\/\/|\/)[^\s'"]+\.mp4(?:\?[^\s'"]*)?/g;
 
         let videoUrls: string[] = [];
         const m3u8Matches = html.match(m3u8Regex);
@@ -215,10 +215,22 @@ class Provider {
         }
 
         const videos: VideoSource[] = [];
+        
+        let origin = "";
+        try {
+            const urlObj = new URL(serverUrl);
+            origin = urlObj.origin;
+        } catch(e) {}
+
         for (const url of videoUrls) {
-            const type = url.includes('.m3u8') ? 'm3u8' : 'mp4';
+            let finalUrl = url;
+            if (url.startsWith("/")) {
+                if (origin === "") continue;
+                finalUrl = origin + url;
+            }
+            const type = finalUrl.includes('.m3u8') ? 'm3u8' : 'mp4';
             videos.push({
-                url: url,
+                url: finalUrl,
                 type: type as VideoSourceType,
                 quality: `${this._Server} - unknown`,
                 subtitles: []

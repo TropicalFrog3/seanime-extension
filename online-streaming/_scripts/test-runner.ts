@@ -52,7 +52,8 @@ async function callPlayground(code: string, func: string, inputs: any) {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
-            "Cookie": `Seanime-Client-Id=${SEANIME_CLIENT_ID}`
+            "Cookie": `Seanime-Client-Id=${SEANIME_CLIENT_ID}`,
+            "Origin": "http://127.0.0.1:43211"
         },
         body: JSON.stringify(body)
     });

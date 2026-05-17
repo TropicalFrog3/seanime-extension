@@ -19,8 +19,20 @@ class Provider {
     }
 
     private async doFetch(url: string, extraHeaders?: Record<string, string>): Promise<string> {
-        const res = await fetch(url, {
-            headers: { "User-Agent": UA, "Referer": BASE_URL, ...(extraHeaders || {}) },
+        const headers: Record<string, string> = {
+            "User-Agent": UA,
+            "Referer": BASE_URL,
+        };
+
+        if (extraHeaders) {
+            for (const [k, v] of Object.entries(extraHeaders)) {
+                headers[k] = v;
+            }
+        }
+
+        const res = await fetch(url, { 
+            headers,
+            noCloudflareBypass: true
         });
         if (!res) throw new Error(`Fetch returned undefined for ${url}`);
         if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
@@ -96,7 +108,7 @@ class Provider {
         const type = parts.length > 1 ? parts[1] : "sub";
         console.log(`findEpisodes: slug="${slug}", type="${type}"`);
         try {
-            // Step 1: Get the show page to extract the internal numeric ID
+            // Step 1: Get the show page
             const pageHtml = await this.doFetch(`${BASE_URL}/watch/${slug}`);
 
             // The show ID is in a data-id attribute
@@ -108,14 +120,18 @@ class Provider {
             // Step 2: Fetch episode list via AJAX API
             const epJson = await this.doFetch(
                 `${BASE_URL}/ajax/episode/list/${showId}`,
-                { "X-Requested-With": "XMLHttpRequest" }
+                {
+                    "Referer": `${BASE_URL}/watch/${slug}`,
+                    "X-Requested-With": "XMLHttpRequest"
+                }
             );
-
+            console.log(`epJson content preview: ${epJson.substring(0, 300)}`);
             const epData = JSON.parse(epJson);
             if (!epData.result) { console.log("No episode data"); return []; }
 
             const $ep = LoadDoc(epData.result);
             const epLinks = $ep("a[data-num]");
+            console.log(`epLinks selection count: ${epLinks.length()}`);
             const episodes: EpisodeDetails[] = [];
 
             for (let i = 0; i < epLinks.length(); i++) {

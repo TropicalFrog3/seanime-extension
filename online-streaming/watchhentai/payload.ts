@@ -114,7 +114,8 @@ class Provider {
         const html = await fetch(episode.url).then(res => res.text());
         const $ = LoadDoc(html);
         
-        let videoUrl = "";
+        let baseVideoUrl = "";
+        let qualities: string[] = [];
         
         const iframe = $("#search_iframe");
         if (iframe.length() > 0) {
@@ -130,50 +131,85 @@ class Provider {
                         if (key === "source" && value) {
                             const decodedValue = decodeURIComponent(value);
                             if (decodedValue.startsWith("http")) {
-                                videoUrl = decodedValue;
+                                baseVideoUrl = decodedValue;
                             } else {
-                                videoUrl = this.decodeBase64(decodedValue);
+                                baseVideoUrl = this.decodeBase64(decodedValue);
                             }
-                            break;
+                        } else if (key === "quality" && value) {
+                            const decodedQuality = decodeURIComponent(value);
+                            qualities = decodedQuality.split(",").map(q => q.trim()).filter(Boolean);
                         }
                     }
                 }
             }
         }
         
-        if (videoUrl) {
-            try {
-                const headRes = await fetch(videoUrl, { method: "HEAD", headers: { "Referer": this.URL } });
-                if (!headRes.ok) {
-                    videoUrl = "";
+        const candidates: { url: string; quality: string }[] = [];
+        if (baseVideoUrl) {
+            const getQualityUrl = (baseUrl: string, q: string): string => {
+                if (q === "default") return baseUrl;
+                if (baseUrl.includes(".m3u8")) return baseUrl;
+                const dotIdx = baseUrl.lastIndexOf(".");
+                if (dotIdx !== -1) {
+                    return baseUrl.substring(0, dotIdx) + "_" + q + baseUrl.substring(dotIdx);
                 }
-            } catch (e) {
-                // Ignore fetch errors; if we can't verify, we'll try returning it anyway or bail if it failed completely
-                // But typically if it's completely unreachable we might want to bail
-                videoUrl = "";
+                return baseUrl;
+            };
+
+            if (qualities.length > 0) {
+                for (const q of qualities) {
+                    candidates.push({
+                        url: getQualityUrl(baseVideoUrl, q),
+                        quality: q
+                    });
+                }
+            }
+            // Also check the raw/base video URL as default/backup
+            candidates.push({
+                url: baseVideoUrl,
+                quality: "default"
+            });
+        }
+
+        const validSources: VideoSource[] = [];
+        if (candidates.length > 0) {
+            const checks = await Promise.all(
+                candidates.map(async (c) => {
+                    try {
+                        const res = await fetch(c.url, { method: "HEAD", headers: { "Referer": this.URL } });
+                        if (res.ok) {
+                            return c;
+                        }
+                    } catch (e) {
+                        // ignore error
+                    }
+                    return null;
+                })
+            );
+
+            for (const c of checks) {
+                if (c) {
+                    let type: VideoSourceType = "mp4";
+                    if (c.url.includes(".m3u8")) type = "m3u8";
+                    
+                    if (!validSources.some(s => s.url === c.url)) {
+                        validSources.push({
+                            url: c.url,
+                            quality: c.quality,
+                            type: type,
+                            subtitles: []
+                        });
+                    }
+                }
             }
         }
-        
-        if (!videoUrl) {
-            return { server: _server, headers: {}, videoSources: [] };
-        }
-        
-        let type: VideoSourceType = "mp4";
-        if (videoUrl.includes(".m3u8")) type = "m3u8";
         
         return {
             server: _server,
             headers: {
                 "Referer": this.URL
             },
-            videoSources: [
-                {
-                    url: videoUrl,
-                    quality: "default",
-                    type: type,
-                    subtitles: []
-                }
-            ]
+            videoSources: validSources
         };
     }
 }

@@ -141,6 +141,19 @@ class Provider {
             }
         }
         
+        if (videoUrl) {
+            try {
+                const headRes = await fetch(videoUrl, { method: "HEAD", headers: { "Referer": this.URL } });
+                if (!headRes.ok) {
+                    videoUrl = "";
+                }
+            } catch (e) {
+                // Ignore fetch errors; if we can't verify, we'll try returning it anyway or bail if it failed completely
+                // But typically if it's completely unreachable we might want to bail
+                videoUrl = "";
+            }
+        }
+        
         if (!videoUrl) {
             return { server: _server, headers: {}, videoSources: [] };
         }

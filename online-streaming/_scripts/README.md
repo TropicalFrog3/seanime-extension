@@ -1,8 +1,10 @@
-# Seanime Extension Test Runner
+# Seanime Extension Development Utilities
 
-This directory contains a **Universal Test Runner** (`test-runner.ts` & `test-provider.ts`) designed specifically to test Seanime online streaming extensions locally before deploying them.
+This directory contains development tools and utilities for testing, updating, and publishing Seanime online streaming extensions.
 
-It accurately mimics Seanime's internal Go engine (including the custom `LoadDoc` and `DocSelection` behavior) and uses Seanime's built-in proxy API to test video playability, successfully bypassing Cloudflare and strict CDN protections just like the real app.
+* **Universal Test Runner** (`test-runner.ts`): Designed specifically to test Seanime online streaming extensions locally before deploying them. It accurately mimics Seanime's internal Go engine and uses Seanime's proxy API to test playability.
+* **Manifest Utilities** (`update-manifest.sh` & `update-all-manifests.sh`): Script utilities to package the TypeScript payload of extensions into their corresponding `manifest.json`.
+* **Marketplace Generator** (`generate-marketplace.ts`): Automatically scans the `online-streaming/` directory to build a consolidated marketplace JSON file (`TropicalFrog's-marketplace/main.json`).
 
 ## ⚠️ Prerequisites
 
@@ -11,7 +13,7 @@ It accurately mimics Seanime's internal Go engine (including the custom `LoadDoc
 
 ## Installation
 
-Before running the tests for the first time, you need to install `cheerio` (which is used to polyfill Seanime's HTML parser). You don't need to save it to your repository.
+Before running the tests or utilities for the first time, you need to install `cheerio` (which is used to polyfill Seanime's HTML parser). You don't need to save it to your repository.
 
 ```bash
 cd online-streaming
@@ -20,9 +22,14 @@ npm install --no-save cheerio
 
 ## Usage
 
-You can test **any** extension in the `online-streaming` folder dynamically. Run the commands from the `online-streaming` directory.
+You can run these scripts from the `online-streaming` directory by prefixing them with the `_scripts/` path, or navigate directly into the `_scripts` directory first.
 
 ### 1. Run the Test Runner
+Run from the `online-streaming` directory:
+```bash
+npx tsx _scripts/test-runner.ts <extension-folder-name> [query] [episode] [server]
+```
+Or from the `_scripts` directory:
 ```bash
 npx tsx test-runner.ts <extension-folder-name> [query] [episode] [server]
 ```
@@ -30,13 +37,27 @@ npx tsx test-runner.ts <extension-folder-name> [query] [episode] [server]
 ### 2. Update Manifests
 To update a single manifest:
 ```bash
-update-manifest.sh <extension-folder-name>
+_scripts/update-manifest.sh <extension-folder-name>
 ```
 
 To update all manifests:
 ```bash
-update-all-manifests.sh
+_scripts/update-all-manifests.sh
 ```
+
+### 3. Generate Marketplace
+To compile all extension manifests in `online-streaming/` and generate a consolidated marketplace JSON file (`TropicalFrog's-marketplace/main.json`):
+
+Run from the `online-streaming` directory:
+```bash
+npx tsx _scripts/generate-marketplace.ts
+```
+Or from the `_scripts` directory:
+```bash
+npx tsx generate-marketplace.ts
+```
+
+This script will scan the `online-streaming/` directory, parse each extension's `manifest.json` (excluding internal/helper folders), sort the entries alphabetically, and output the unified marketplace registry file.
 
 ---
 

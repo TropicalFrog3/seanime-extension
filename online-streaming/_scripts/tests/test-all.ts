@@ -388,30 +388,89 @@ function pad(str: string, len: number): string {
     return str + " ".repeat(len - str.length);
 }
 
-function printSummaryTable(results: TestResult[]) {
-    console.log(`\n${COLOR_BOLD}${COLOR_CYAN}┌${"─".repeat(22)}┬${"─".repeat(10)}┬${"─".repeat(6)}┬${"─".repeat(8)}┬${"─".repeat(45)}┐${COLOR_RESET}`);
-    console.log(`${COLOR_BOLD}${COLOR_CYAN}│ ${pad("Extension", 20)} │ ${pad("Category", 8)} │ ${pad("Mode", 4)} │ ${pad("Status", 6)} │ ${pad("Details / Error Step", 43)} │${COLOR_RESET}`);
-    console.log(`${COLOR_BOLD}${COLOR_CYAN}├${"─".repeat(22)}┼${"─".repeat(10)}┼${"─".repeat(6)}┼${"─".repeat(8)}┼${"─".repeat(45)}┤${COLOR_RESET}`);
+interface GroupedResult {
+    extension: string;
+    name: string;
+    category: "FRENCH" | "ENGLISH" | "HENTAI";
+    subStatus: "PASS" | "FAIL" | "N/A";
+    subDetails: string;
+    dubStatus: "PASS" | "FAIL" | "N/A";
+    dubDetails: string;
+}
 
+function groupResults(results: TestResult[]): GroupedResult[] {
+    const groups: Record<string, GroupedResult> = {};
     for (const r of results) {
-        const statusColor = r.status === "PASS" ? COLOR_GREEN : COLOR_RED;
-        const statusStr = `${statusColor}${pad(r.status, 6)}${COLOR_RESET}`;
-        const modeStr = pad(r.mode, 4);
-        const nameStr = pad(r.name.length > 20 ? r.name.substring(0, 17) + "..." : r.name, 20);
-        const categoryStr = pad(r.category, 8);
+        if (!groups[r.extension]) {
+            groups[r.extension] = {
+                extension: r.extension,
+                name: r.name,
+                category: r.category,
+                subStatus: "N/A",
+                subDetails: "",
+                dubStatus: "N/A",
+                dubDetails: ""
+            };
+        }
+        
+        const g = groups[r.extension];
+        if (r.mode === "Sub") {
+            g.subStatus = r.status as any;
+            g.subDetails = r.status === "PASS" ? r.details : `[${r.step}] ${r.details}`;
+        } else {
+            g.dubStatus = r.status as any;
+            g.dubDetails = r.status === "PASS" ? r.details : `[${r.step}] ${r.details}`;
+        }
+    }
+    return Object.values(groups);
+}
+
+function printSummaryTable(results: TestResult[]) {
+    const grouped = groupResults(results);
+    
+    console.log(`\n${COLOR_BOLD}${COLOR_CYAN}┌${"─".repeat(22)}┬${"─".repeat(10)}┬────────┬────────┬${"─".repeat(45)}┐${COLOR_RESET}`);
+    console.log(`${COLOR_BOLD}${COLOR_CYAN}│ ${pad("Extension", 20)} │ ${pad("Category", 8)} │ ${pad("Sub", 6)} │ ${pad("Dub", 6)} │ ${pad("Details / Failure Step", 43)} │${COLOR_RESET}`);
+    console.log(`${COLOR_BOLD}${COLOR_CYAN}├${"─".repeat(22)}┼${"─".repeat(10)}┼────────┼────────┼${"─".repeat(45)}┤${COLOR_RESET}`);
+
+    for (const g of grouped) {
+        const nameStr = pad(g.name.length > 20 ? g.name.substring(0, 17) + "..." : g.name, 20);
+        const categoryStr = pad(g.category, 8);
+        
+        let subStr = "";
+        if (g.subStatus === "PASS") subStr = `${COLOR_GREEN}PASS  ${COLOR_RESET}`;
+        else if (g.subStatus === "FAIL") subStr = `${COLOR_RED}FAIL  ${COLOR_RESET}`;
+        else subStr = `N/A   `;
+        
+        let dubStr = "";
+        if (g.dubStatus === "PASS") dubStr = `${COLOR_GREEN}PASS  ${COLOR_RESET}`;
+        else if (g.dubStatus === "FAIL") dubStr = `${COLOR_RED}FAIL  ${COLOR_RESET}`;
+        else dubStr = `N/A   `;
         
         let detailsVal = "";
-        if (r.status === "PASS") {
-            detailsVal = r.details;
+        if (g.subStatus !== "N/A" && g.dubStatus === "N/A") {
+            detailsVal = g.subDetails;
+        } else if (g.subStatus === "N/A" && g.dubStatus !== "N/A") {
+            detailsVal = g.dubDetails;
         } else {
-            detailsVal = `[${r.step}] ${r.details}`;
+            if (g.subStatus === "PASS" && g.dubStatus === "PASS") {
+                detailsVal = g.subDetails === g.dubDetails ? g.subDetails : `Sub: ${g.subDetails} / Dub: ${g.dubDetails}`;
+            } else if (g.subStatus === "FAIL" && g.dubStatus === "FAIL") {
+                detailsVal = g.subDetails === g.dubDetails ? g.subDetails : `Sub: ${g.subDetails} | Dub: ${g.dubDetails}`;
+            } else {
+                detailsVal = `Sub: ${g.subStatus === "PASS" ? "PASS" : g.subDetails} | Dub: ${g.dubStatus === "PASS" ? "PASS" : g.dubDetails}`;
+            }
         }
+        
         const detailsStr = pad(detailsVal.length > 43 ? detailsVal.substring(0, 40) + "..." : detailsVal, 43);
-
-        console.log(`│ ${nameStr} │ ${categoryStr} │ ${modeStr} │ ${statusStr} │ ${detailsStr} │`);
+        console.log(`│ ${nameStr} │ ${categoryStr} │ ${subStr} │ ${dubStr} │ ${detailsStr} │`);
     }
 
-    console.log(`${COLOR_BOLD}${COLOR_CYAN}└${"─".repeat(22)}┴${"─".repeat(10)}┴${"─".repeat(6)}┴${"─".repeat(8)}┴${"─".repeat(45)}┘${COLOR_RESET}`);
+    console.log(`${COLOR_BOLD}${COLOR_CYAN}└${"─".repeat(22)}┴${"─".repeat(10)}┴────────┴────────┴${"─".repeat(45)}┘${COLOR_RESET}`);
+}
+
+// --- Helper to Escape Markdown Table Separators ---
+function escapeMarkdownTable(str: string): string {
+    return str.replace(/\|/g, "\\|");
 }
 
 // --- Write Markdown Report ---
@@ -431,13 +490,41 @@ function generateMarkdownReport(results: TestResult[], reportPath: string) {
     markdown += `| **Overall Pass Rate** | **${passRate}%** |\n\n`;
     
     markdown += `## Extension Health Status\n\n`;
-    markdown += `| Extension | Category | Mode | Status | Details / Failure Step |\n`;
-    markdown += `| :--- | :--- | :--- | :---: | :--- |\n`;
+    markdown += `| Extension | Category | Sub | Dub | Details / Failure Step |\n`;
+    markdown += `| :--- | :--- | :---: | :---: | :--- |\n`;
     
-    for (const r of results) {
-        const statusBadge = r.status === "PASS" ? "🟢 PASS" : "🔴 FAIL";
-        const detailsText = r.status === "PASS" ? r.details : `**[${r.step}]** ${r.details}`;
-        markdown += `| **${r.name}** (\`${r.extension}\`) | ${r.category} | ${r.mode} | ${statusBadge} | ${detailsText} |\n`;
+    const grouped = groupResults(results);
+    
+    for (const g of grouped) {
+        const nameEscaped = escapeMarkdownTable(g.name);
+        
+        let subBadge = "";
+        if (g.subStatus === "PASS") subBadge = "🟢 PASS";
+        else if (g.subStatus === "FAIL") subBadge = "🔴 FAIL";
+        else subBadge = "➖ *N/A*";
+        
+        let dubBadge = "";
+        if (g.dubStatus === "PASS") dubBadge = "🟢 PASS";
+        else if (g.dubStatus === "FAIL") dubBadge = "🔴 FAIL";
+        else dubBadge = "➖ *N/A*";
+        
+        let detailsVal = "";
+        if (g.subStatus !== "N/A" && g.dubStatus === "N/A") {
+            detailsVal = g.subDetails;
+        } else if (g.subStatus === "N/A" && g.dubStatus !== "N/A") {
+            detailsVal = g.dubDetails;
+        } else {
+            if (g.subStatus === "PASS" && g.dubStatus === "PASS") {
+                detailsVal = g.subDetails === g.dubDetails ? g.subDetails : `Sub: ${g.subDetails} <br> Dub: ${g.dubDetails}`;
+            } else if (g.subStatus === "FAIL" && g.dubStatus === "FAIL") {
+                detailsVal = g.subDetails === g.dubDetails ? g.subDetails : `Sub: ${g.subDetails} <br> Dub: ${g.dubDetails}`;
+            } else {
+                detailsVal = `Sub: ${g.subStatus === "PASS" ? "🟢 PASS" : g.subDetails} <br> Dub: ${g.dubStatus === "PASS" ? "🟢 PASS" : g.dubDetails}`;
+            }
+        }
+        
+        const detailsEscaped = escapeMarkdownTable(detailsVal);
+        markdown += `| **${nameEscaped}** (\`${g.extension}\`) | ${g.category} | ${subBadge} | ${dubBadge} | ${detailsEscaped} |\n`;
     }
     
     markdown += `\n---\n`;

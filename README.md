@@ -1,6 +1,6 @@
 # **seanime-extension**
 
-## 🌟 Online Streaming Plugins for Seanime
+## Online Streaming Plugins for Seanime
 
 ---
 
@@ -15,12 +15,20 @@ We provide a custom marketplace for all the online streaming extensions hosted i
 ### How to use:
 1. Open your **Seanime** extensions panel.
 2. Go into the marketplace tab.
-3. Click on "**Change repository**"
-2. Under marketplaces url, add the following URL:
+3. Click on "**Change repository**".
+4. Under the marketplace URLs, add the following URL:
    ```text
    https://raw.githubusercontent.com/TropicalFrog3/seanime-extension/refs/heads/main/TropicalFrog%27s-marketplace/main.json
    ```
-3. You will immediately see all the available extensions from this repository, ready to install with a single click!
+5. You will immediately see all the available extensions from this repository, ready to install with a single click!
+
+---
+
+## Extension Health & Availability
+
+I try to run automated weekly health checks to verify that video queries, episode lookup, and streaming servers are fully operational for all online streaming sources in this repository.
+
+👉 **To see the real-time status of each extension (what is currently working or broken), view our [Automated Health Report](online-streaming/_scripts/tests/test-report.md).**
 
 ---
 

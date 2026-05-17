@@ -557,7 +557,7 @@ class Provider {
         }
         
         // For now, use the direct /video endpoint which works - streamable.cloud may come back
-        const req = await fetch(episode.url), {
+        const req = await fetch(episode.url, {
             method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',

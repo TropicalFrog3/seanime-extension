@@ -4,3 +4,5 @@ Future Plugins.txt
 plugins/*
 online-streaming/node_modules/*
 .aniyo-ext/*
+online-streaming/_scripts/tests/test-results.log
+online-streaming/_scripts/tests/info.txt

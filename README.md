@@ -12,6 +12,8 @@
 
 We provide a custom marketplace for all the online streaming extensions hosted in this repository. You can add it directly to your Seanime client.
 
+👉 **To view the complete marketplace catalog, including descriptions and icons for each provider, check out our [Marketplace Catalog](TropicalFrog's-marketplace/README.md).**
+
 ### How to use:
 1. Open your **Seanime** extensions panel.
 2. Go into the marketplace tab.

@@ -533,6 +533,115 @@ function generateMarkdownReport(results: TestResult[], reportPath: string) {
     fs.writeFileSync(reportPath, markdown, "utf-8");
 }
 
+// --- Helper to Update Marketplace README ---
+function updateMarketplaceReadme(
+    extensions: { dir: string; manifest: any; payloadPath: string }[],
+    results: TestResult[],
+    skipExtensions: string[],
+    readmePath: string
+) {
+    const grouped = groupResults(results);
+    const groupedMap = new Map<string, GroupedResult>();
+    for (const g of grouped) {
+        groupedMap.set(g.extension, g);
+    }
+
+    let markdown = `# TropicalFrog's Seanime Extension Marketplace\n\n`;
+    markdown += `Welcome to the **TropicalFrog Extension Marketplace**! This is a curated collection of online streaming extensions for **[Seanime](https://github.com/5rahim/seanime)**, providing high-quality anime, hentai, and multi-language streams directly in your Seanime dashboard.\n\n`;
+    markdown += `---\n\n`;
+    markdown += `## 🚀 Quick Installation\n\n`;
+    markdown += `To add all these extensions to your Seanime client at once, follow these simple steps:\n\n`;
+    markdown += `1. Copy this marketplace URL:\n`;
+    markdown += `   \`\`\`text\n`;
+    markdown += `   https://raw.githubusercontent.com/TropicalFrog3/seanime-extension/refs/heads/main/TropicalFrog's-marketplace/main.json\n`;
+    markdown += `   \`\`\`\n`;
+    markdown += `2. Open **Seanime** and navigate to **Extensions** -> **Marketplaces**.\n`;
+    markdown += `3. Click **Add External Marketplace**, paste the URL, and click **Confirm**.\n`;
+    markdown += `4. Install your desired extensions with a single click!\n\n`;
+    markdown += `---\n\n`;
+    markdown += `## 📦 Available Extensions\n\n`;
+    markdown += `Here is the current catalog of extensions available in this marketplace. Health statuses are continuously checked and validated by our automated weekly test suite.\n\n`;
+
+    // Group extensions by category (ENGLISH, FRENCH, HENTAI)
+    const englishExts: typeof extensions = [];
+    const frenchExts: typeof extensions = [];
+    const hentaiExts: typeof extensions = [];
+
+    for (const ext of extensions) {
+        const category = getCategory(ext.manifest);
+        if (category === "ENGLISH") englishExts.push(ext);
+        else if (category === "FRENCH") frenchExts.push(ext);
+        else hentaiExts.push(ext);
+    }
+
+    const renderTable = (exts: typeof extensions) => {
+        let table = `| Icon | Extension | Description | Supported | Status |\n`;
+        table += `| :---: | :--- | :--- | :---: | :---: |\n`;
+        for (const ext of exts) {
+            const manifest = ext.manifest;
+            const iconUrl = manifest.icon || "";
+            const iconImg = iconUrl ? `<img src="${iconUrl}" width="32" height="32" style="border-radius:4px;"/>` : `➖`;
+            const nameEscaped = escapeMarkdownTable(manifest.name || ext.dir);
+            const desc = manifest.description || "";
+            
+            // Get supported mode info (Sub & Dub)
+            const code = fs.readFileSync(ext.payloadPath, "utf-8");
+            const settings = parseSettingsFromCode(code);
+            const supported = settings.supportsDub ? "Sub & Dub" : "Sub";
+
+            // Status tag logic
+            let statusTag = "";
+            const isSkipped = skipExtensions.includes(ext.dir.toLowerCase()) ||
+                              skipExtensions.includes((manifest.name || "").toLowerCase()) ||
+                              skipExtensions.includes((manifest.id || "").toLowerCase());
+            
+            if (isSkipped) {
+                if (ext.dir === "anime-ultra") {
+                    statusTag = `🟡 **Slow / Excluded**`;
+                } else {
+                    statusTag = `⚪ **Skipped**`;
+                }
+            } else {
+                const gr = groupedMap.get(ext.dir);
+                if (gr) {
+                    const subOk = gr.subStatus === "PASS" || gr.subStatus === "N/A";
+                    const dubOk = gr.dubStatus === "PASS" || gr.dubStatus === "N/A";
+                    if (subOk && dubOk) {
+                        statusTag = `🟢 **Working**`;
+                    } else {
+                        statusTag = `🔴 **Broken**`;
+                    }
+                } else {
+                    statusTag = `⚪ **Unknown**`;
+                }
+            }
+
+            table += `| ${iconImg} | **${nameEscaped}** (\`${ext.dir}\`) | ${desc} | ${supported} | ${statusTag} |\n`;
+        }
+        return table;
+    };
+
+    markdown += `<details>\n`;
+    markdown += `<summary><b>🇬🇧 English Anime Providers</b></summary>\n<br>\n\n`;
+    markdown += renderTable(englishExts) + `\n`;
+    markdown += `</details>\n\n`;
+
+    markdown += `<details>\n`;
+    markdown += `<summary><b>🇫🇷 French Anime Providers (FR)</b></summary>\n<br>\n\n`;
+    markdown += renderTable(frenchExts) + `\n`;
+    markdown += `</details>\n\n`;
+
+    markdown += `<details>\n`;
+    markdown += `<summary><b>🔞 Mature & Hentai Providers (18+)</b></summary>\n<br>\n\n`;
+    markdown += renderTable(hentaiExts) + `\n`;
+    markdown += `</details>\n\n`;
+
+    markdown += `## 📈 Extension Health Status Report\n\n`;
+    markdown += `We keep a comprehensive, auto-generated dashboard showing the real-time test verification logs for all extensions. Check the detailed **[Extension Health Report](../online-streaming/_scripts/tests/test-report.md)** to see which streaming links, resolvers, and sources were tested!\n`;
+
+    fs.writeFileSync(readmePath, markdown, "utf-8");
+}
+
 // --- Main Execution Flow ---
 async function run() {
     console.log(`\n${COLOR_BOLD}${COLOR_BLUE}╔════════════════════════════════════════════════════════════════════════════╗`);
@@ -673,6 +782,13 @@ async function run() {
     // Save Markdown Report
     generateMarkdownReport(results, reportMdPath);
     console.log(`\n💾 Saved detailed health report to: ${COLOR_GREEN}${reportMdPath}${COLOR_RESET}`);
+    
+    // Save Marketplace README
+    const repoRootDir = path.resolve(streamingDir, "..");
+    const marketplaceReadmePath = path.resolve(repoRootDir, "TropicalFrog's-marketplace", "README.md");
+    updateMarketplaceReadme(extensions, results, skipExtensions, marketplaceReadmePath);
+    console.log(`💾 Saved updated marketplace catalog to: ${COLOR_GREEN}${marketplaceReadmePath}${COLOR_RESET}`);
+    
     console.log(`📝 Saved full raw execution logs to: ${COLOR_GREEN}${logFilePath}${COLOR_RESET}\n`);
 
     // Print ending message

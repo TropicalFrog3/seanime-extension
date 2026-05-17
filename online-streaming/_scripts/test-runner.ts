@@ -90,13 +90,15 @@ async function runTest() {
     const epArg = process.argv[4] ? parseInt(process.argv[4], 10) : 1;
     const serverArg = process.argv[5];
 
-    let mediaId = 110270; // Default
+    let mediaId: number | undefined = 1; // Default none
     let queryArg = queryOrId || "Ishuzoku Reviewers";
 
     // If queryOrId is a number, use it as mediaId
     if (queryOrId && !isNaN(Number(queryOrId))) {
         mediaId = Number(queryOrId);
         console.log(`[INFO] Using mediaId: ${mediaId}`);
+    } else if (!queryOrId) {
+        mediaId = 110270;
     }
 
     if (!targetExtension) {
